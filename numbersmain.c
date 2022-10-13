@@ -47,7 +47,6 @@ int main(int argc, char *argv[]){
   for(i=1;i<=5;i++) {
     lwp_create((lwpfun)indentnum,(void*)i,INITIALSTACK);
   }
-  printf("penis\n)");
   lwp_start();                     /* returns when the last lwp exits */
 
   printf("Back from LWPS.\n");
@@ -59,7 +58,6 @@ static void indentnum(uintptr_t num) {
    * Not terribly interesting, but it is instructive.
    */
   int howfar,i;
-  printf("cock\n");
   howfar=(int)num;              /* interpret num as an integer */
   for(i=0;i<howfar;i++){
     printf("%*d\n",howfar*5,howfar);
