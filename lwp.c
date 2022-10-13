@@ -9,9 +9,9 @@
 
 thread curr = NULL;
 thread root = NULL;
-tid_t thread_id = 0;
+tid_t thread_id = 1;
 rfile original_stack;
-//unsigned long original_sp;
+unsigned long original_sp;
 
 //static struct scheduler rr_publish = {NULL, NULL, rr_admit, rr_remove, rr_next};
 //scheduler RoundRobin = &rr_publish;
@@ -41,18 +41,20 @@ static unsigned long *new_intel_stack64(unsigned long *sp,lwpfun func){
  * function with the given argument. the new processes's stack will be
  * stacksize words. */
 tid_t lwp_create(lwpfun function, void * argument, size_t stacksize) {
+   unsigned long * stackPointer;
    thread temp = malloc(sizeof(context));
 
    temp->stack = malloc(stacksize * sizeof(unsigned long));
+   temp->stack += stacksize;
    temp->stacksize = stacksize;
 
-   //start register logic after new stack
-   temp->state.rbp = (unsigned long)(temp->stack + stacksize - 1);
-   temp->state.rsp = *new_intel_stack64(temp->stack + stacksize - 1, function);
+   stackPointer = temp->stack;
+
+   temp->state.rbp = (unsigned long)new_intel_stack64(stackPointer, function);
+   temp->state.rsp = (unsigned long)stackPointer;
    temp->state.rdi = (unsigned long)argument;
+
    temp->state.fxsave = FPU_INIT;
-   //temp->state.rsp = (unsigned long)temp->stack; 
-   //end register logic after new stack
 
    if(root == NULL){
       root = temp;
@@ -74,9 +76,9 @@ tid_t lwp_create(lwpfun function, void * argument, size_t stacksize) {
  * sched->next to get the next thread. if there are no other threads, restores
  * the original system thread. */
 void lwp_exit(void) {
-   free(curr->stack);
-   free(curr);
    RoundRobin->remove(curr);
+   free(curr->stack - curr->stacksize);
+   free(curr);
    curr = RoundRobin->next();
    if(!curr){
       load_context(&original_stack);
@@ -116,17 +118,14 @@ void lwp_start(void) {
    if(!root){
       return;
    }
-
    save_context(&original_stack);
-   //original_sp = getSP();
+   GetSP(original_sp);
 
    curr = RoundRobin->next();
-
    if(!curr){
       load_context(&original_stack);
       return;
    }
-
    load_context(&(curr->state));
 }
 
@@ -137,6 +136,7 @@ void lwp_start(void) {
  * lwp_start(). */
 void lwp_stop(void) {
    save_context(&(curr->state));
+   SetSP(original_sp);
    load_context(&original_stack);
 }
 
