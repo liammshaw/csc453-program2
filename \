@@ -9,13 +9,15 @@
 
 thread curr = NULL;
 thread root = NULL;
-tid_t thread_id = 1;
+tid_t thread_id = 0;
 rfile original_stack;
-unsigned long original_sp;
+//unsigned long original_sp;
+
+//static struct scheduler rr_publish = {NULL, NULL, rr_admit, rr_remove, rr_next};
+//scheduler RoundRobin = &rr_publish;
 
 /* useful for "intuitively" building stacks */
 #define push(sp,val) (*(--sp)=(unsigned long)(val))
-
 
 static unsigned long *new_intel_stack64(unsigned long *sp,lwpfun func){
    /* mock up a stack for the INTEL architecture
@@ -35,24 +37,22 @@ static unsigned long *new_intel_stack64(unsigned long *sp,lwpfun func){
 }
 
 
-/* create: creates a new lwp which executes the given function with the given
- * argument. returns the thread id of the lwp. */
+/* create: creates a new lightweight process which executes the given
+ * function with the given argument. the new processes's stack will be
+ * stacksize words. */
 tid_t lwp_create(lwpfun function, void * argument, size_t stacksize) {
-   unsigned long * stackPointer;
    thread temp = malloc(sizeof(context));
 
    temp->stack = malloc(stacksize * sizeof(unsigned long));
-   temp->stack += stacksize;
    temp->stacksize = stacksize;
-
-   stackPointer = temp->stack;
-
-   temp->state.rbp = (unsigned long)new_intel_stack64(stackPointer, function);
-   temp->state.rsp = (unsigned long)stackPointer;
+   
+   //start register logic after new stack
+   temp->state.rbp = (unsigned long)(temp->stack + stacksize - 1);
+   temp->state.rsp = *new_intel_stack64(temp->stack + stacksize - 1, function);
    temp->state.rdi = (unsigned long)argument;
-
    temp->state.fxsave = FPU_INIT;
-
+   //temp->state.rsp = (unsigned long)temp->stack; 
+   //end register logic after new stack
    if(root == NULL){
       root = temp;
    }
@@ -69,12 +69,13 @@ tid_t lwp_create(lwpfun function, void * argument, size_t stacksize) {
 }
 
 
-/* exit: terminates the current lwp, frees its resources, and gets the next
- * thread. if there are no other threads, restores original system thread. */
+/* exit: terminates the current lwp and frees its resources. calls
+ * sched->next to get the next thread. if there are no other threads, restores
+ * the original system thread. */
 void lwp_exit(void) {
-   RoundRobin->remove(curr);
-   free(curr->stack - curr->stacksize);
+   free(curr->stack);
    free(curr);
+   RoundRobin->remove(curr);
    curr = RoundRobin->next();
    if(!curr){
       load_context(&original_stack);
@@ -86,11 +87,16 @@ void lwp_exit(void) {
 
 /* gettid: returns tid of the calling lwp or NO_THREAD if not called by lwp */
 tid_t lwp_gettid(void) {
-   return curr ? curr->tid : NO_THREAD;
+   if (!curr) {
+      return NO_THREAD;
+   }
+   return curr->tid;
 }
 
-/* yield: yields control to lwp indicated by scheduler. saves current lwp's 
- * context, restores new thread's context, and returns */
+
+/* yield: yields control to another lwp (which one depends on scheduler). saves
+ * current lwp's context, picks the next one, restores that thread's context,
+ * and returns */
 void lwp_yield(void) {
    save_context(&(curr->state));
    curr = RoundRobin->next();
@@ -102,20 +108,24 @@ void lwp_yield(void) {
 }
 
 
-/* start: starts lwp system. saves original context, picks a lwp and starts it.
- * if there are no lwps, returns immediately. */
+/* start: starts lwp system. saves original context (for lwp_stop() to use
+ * later), picks a lwp and starts it running. if there are no lwps, returns
+ * immediately. */
 void lwp_start(void) {
    if(!root){
       return;
    }
+
    save_context(&original_stack);
-   GetSP(original_sp);
+   //original_sp = getSP();
 
    curr = RoundRobin->next();
+
    if(!curr){
       load_context(&original_stack);
       return;
    }
+
    load_context(&(curr->state));
 }
 
@@ -126,15 +136,15 @@ void lwp_start(void) {
  * lwp_start(). */
 void lwp_stop(void) {
    save_context(&(curr->state));
-   SetSP(original_sp);
    load_context(&original_stack);
 }
 
 
 
-/* set_scheduler: lwp package uses given scheduler to choose the next proces
- *  to run. transfers all threads from the old scheduler to the new one in
- *  next() order. if scheduler is NULL the library returns to rr scheduling. */
+/* set_scheduler: causes the lwp package to use given scheduler to choose the
+ * next process to run. transfers all threads from the old scheduler to the
+ * new one in next() order. if scheduler is NULL the library should return to
+ * rr scheduling. */
 void lwp_set_scheduler(scheduler fun) {
    if (!fun){
       return;
